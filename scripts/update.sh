@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Automated Update Script for Personal Finance App
-# This script automatically updates the application from GitHub and implements changes
+# Update Script for Personal Finance App
+# This script updates the application from GitHub and implements changes
 
 # Log file
 LOG_FILE="/var/log/finance-app-update.log"
@@ -51,6 +51,12 @@ create_directories() {
         mkdir -p "$CONFIG_DIR"
         check_status "Created config directory"
     fi
+    
+    # Create scripts directory if it doesn't exist
+    if [ ! -d "$APP_DIR/scripts" ]; then
+        mkdir -p "$APP_DIR/scripts"
+        check_status "Created scripts directory"
+    fi
 }
 
 # Backup current application
@@ -85,6 +91,12 @@ save_configuration() {
     if [ -f "$FRONTEND_ENV" ]; then
         cp "$FRONTEND_ENV" "$BACKUP_DIR/.env.frontend.bak"
         check_status "Frontend environment file saved"
+    fi
+    
+    # Save Nginx configuration if it exists
+    if [ -f "/etc/nginx/sites-available/finance-app" ]; then
+        cp "/etc/nginx/sites-available/finance-app" "$BACKUP_DIR/finance-app.nginx.bak"
+        check_status "Nginx configuration saved"
     fi
 }
 
@@ -171,7 +183,7 @@ EOF
         log_message "INFO: Creating default backend environment file..."
         cat > "$ENV_FILE" << 'EOF'
 NODE_ENV=production
-PORT=3000
+PORT=5000
 DATABASE_URL=postgresql://bikram:dtP5+x/lehFhyoOi@localhost:5432/finance_app
 JWT_SECRET=your_jwt_secret_key
 JWT_REFRESH_SECRET=your_jwt_refresh_secret_key
@@ -187,7 +199,7 @@ EOF
         # Create default frontend .env file if it doesn't exist
         log_message "INFO: Creating default frontend environment file..."
         cat > "$FRONTEND_ENV" << 'EOF'
-REACT_APP_API_URL=http://localhost:3000/api
+REACT_APP_API_URL=http://localhost:5000/api
 REACT_APP_ENV=production
 EOF
         check_status "Default frontend environment file created"
@@ -268,9 +280,15 @@ configure_nginx() {
         check_status "Nginx installation"
     fi
     
-    # Create Nginx configuration
-    log_message "INFO: Creating Nginx configuration..."
-    cat > /etc/nginx/sites-available/finance-app << 'EOF'
+    # Copy Nginx configuration from repository to the correct location
+    if [ -f "$APP_DIR/nginx/finance-app.conf" ]; then
+        log_message "INFO: Copying Nginx configuration from repository..."
+        cp "$APP_DIR/nginx/finance-app.conf" /etc/nginx/sites-available/finance-app
+        check_status "Nginx configuration copied"
+    else
+        # Create Nginx configuration if it doesn't exist in the repository
+        log_message "INFO: Creating Nginx configuration..."
+        cat > /etc/nginx/sites-available/finance-app << 'EOF'
 server {
     listen 80;
     server_name finance.bikramjitchowdhury.com;
@@ -282,7 +300,7 @@ server {
     }
 
     location /api {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:5000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -291,7 +309,8 @@ server {
     }
 }
 EOF
-    check_status "Nginx configuration creation"
+        check_status "Nginx configuration creation"
+    }
     
     # Enable the site
     if [ ! -L /etc/nginx/sites-enabled/finance-app ]; then
@@ -327,8 +346,8 @@ configure_firewall() {
     ufw allow https
     
     # Allow application ports
-    ufw allow 3000
-    ufw allow 4000
+    ufw allow 5000
+    ufw allow 5001
     
     # Enable firewall if not already enabled
     if [ "$(ufw status | grep -o "inactive")" == "inactive" ]; then
