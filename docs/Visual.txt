@@ -1,0 +1,97 @@
+Personal Finance Management System - Visual Guide
+This document provides a visual guide to the Personal Finance Management System that will be installed on
+your Contabo VPS server. The following pages showcase the key interfaces and features of the application.
+
+Page 1
+
+Personal Finance Management System - Visual Guide
+
+Login Screen
+
+The secure entry point to your system with email and password authentication. Users will need to log in with
+their credentials to access the system.
+
+Page 2
+
+Personal Finance Management System - Visual Guide
+
+Dashboard
+
+The main control center showing key financial metrics at a glance:
+- Net worth, monthly income, and expense summaries
+- Cash flow visualization comparing income vs. expenses over time
+- Expense breakdown by category (housing, food, transport, etc.)
+- Account summaries showing balances across all accounts
+- Financial goals tracking with progress indicators
+
+Page 3
+
+Personal Finance Management System - Visual Guide
+
+Accounts Page
+
+Manage all your financial accounts in one place:
+- View total balance across all accounts
+- Track individual account details including type, institution, and current balance
+- Add new accounts with the "Add Account" button
+- Edit or delete existing accounts as needed
+- Filter and sort accounts by various criteria
+
+Page 4
+
+Personal Finance Management System - Visual Guide
+
+Transactions Page
+
+Monitor all your financial activity with detailed transaction tracking:
+- Filter transactions by date, account, or category
+- Search functionality for finding specific transactions
+- Add and categorize new transactions
+- Edit or delete existing transactions
+- View transaction history with pagination for easy navigation
+
+Page 5
+
+Personal Finance Management System - Visual Guide
+
+Investments Page
+
+Track your investment portfolio performance and allocation:
+- Portfolio overview with total value and returns
+- Asset allocation visualization showing distribution across asset classes
+- Performance tracking over time with interactive chart
+- Detailed holdings information including symbols, shares, prices, and returns
+- Calculate allocation percentages to help with rebalancing decisions
+
+Page 6
+
+Personal Finance Management System - Visual Guide
+
+Complete System Overview
+
+Page 7
+
+Personal Finance Management System - Visual Guide
+This combined view shows all the main interfaces of the Personal Finance Management System, giving you a
+complete picture of the application functionality and design. The system features a clean, professional design
+with an intuitive navigation sidebar for easy access to all features.
+
+Page 8
+
+Personal Finance Management System - Visual Guide
+
+Installation and Next Steps
+To install this system on your Contabo VPS server:
+1. Upload the enhanced installation script (enhanced_install.sh) to your server
+2. Make it executable: chmod +x enhanced_install.sh
+3. Run it with sudo: sudo ./enhanced_install.sh
+4. Follow the interactive prompts to configure your installation
+After installation, you'll have this fully functional financial management system running on your Contabo VPS
+with all the interfaces shown in this document.
+
+The system is designed to be easily maintained and updated. Regular backups will be automatically
+scheduled, and the installation includes comprehensive logging and monitoring capabilities.
+
+Page 9
+
+
