@@ -310,13 +310,15 @@ server {
 }
 EOF
         check_status "Nginx configuration creation"
-    }
-    
-    # Enable the site
-    if [ ! -L /etc/nginx/sites-enabled/finance-app ]; then
-        ln -s /etc/nginx/sites-available/finance-app /etc/nginx/sites-enabled/
-        check_status "Nginx site enabled"
     fi
+    
+    # Enable the site - CRITICAL FIX: Always create the symbolic link
+    log_message "INFO: Enabling Nginx site configuration..."
+    if [ -L /etc/nginx/sites-enabled/finance-app ]; then
+        rm /etc/nginx/sites-enabled/finance-app
+    fi
+    ln -s /etc/nginx/sites-available/finance-app /etc/nginx/sites-enabled/
+    check_status "Nginx site enabled"
     
     # Test Nginx configuration
     nginx -t
