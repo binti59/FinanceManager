@@ -120,10 +120,10 @@ remove_nginx_config() {
     log_info "Removing Nginx configuration..."
     
     # Remove Nginx configuration files - check both with and without .conf extension
-    if [ -f /etc/nginx/sites-enabled/finance-app ]; then
+    if [ -L /etc/nginx/sites-enabled/finance-app ]; then
         rm -f /etc/nginx/sites-enabled/finance-app
         log_info "Removed Nginx configuration from sites-enabled"
-    elif [ -f /etc/nginx/sites-enabled/finance-app.conf ]; then
+    elif [ -L /etc/nginx/sites-enabled/finance-app.conf ]; then
         rm -f /etc/nginx/sites-enabled/finance-app.conf
         log_info "Removed Nginx configuration from sites-enabled"
     fi
@@ -179,10 +179,10 @@ remove_ssl_certificates() {
 remove_application_files() {
     log_info "Removing application files..."
     
-    # Remove application directory
+    # Remove application directory completely
     if [ -d /var/www/finance-app ]; then
         rm -rf /var/www/finance-app
-        log_info "Removed application directory"
+        log_info "Removed application directory completely"
     else
         log_info "Application directory not found"
     fi
