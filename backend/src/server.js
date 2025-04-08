@@ -1,39 +1,55 @@
+const http = require('http');
 const app = require('./app');
-const config = require('./config/config');
-const { sequelize } = require('./models');
+const dotenv = require('dotenv');
 
-// Start the server
-const PORT = config.app.port;
+// Load environment variables
+dotenv.config();
 
-const startServer = async () => {
-  try {
-    // Sync database models
-    if (config.app.env !== 'production') {
-      await sequelize.sync();
-      console.log('Database synced successfully');
-    }
+// Get port from environment and store in Express
+const port = process.env.PORT || 5000;
+app.set('port', port);
 
-    // Start the server
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT} in ${config.app.env} mode`);
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
+// Create HTTP server
+const server = http.createServer(app);
+
+// Listen on provided port
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+// Event listener for HTTP server "error" event
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
   }
-};
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  process.exit(1);
-});
+  const bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
+  // Handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
 
-// Start the server
-startServer();
+// Event listener for HTTP server "listening" event
+function onListening() {
+  const addr = server.address();
+  const bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  console.log('Listening on ' + bind);
+  console.log('Environment: ' + process.env.NODE_ENV);
+}
+
+module.exports = server;

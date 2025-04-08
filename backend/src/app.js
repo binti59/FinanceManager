@@ -1,55 +1,31 @@
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const compression = require('compression');
-const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
-const config = require('./config/config');
-const errorHandler = require('./middleware/errorHandler');
-const routes = require('./routes');
+const dotenv = require('dotenv');
 
-// Initialize express app
+// Load environment variables
+dotenv.config();
+
+// Create Express app
 const app = express();
 
-// Security middleware
-app.use(helmet());
-
-// CORS configuration
+// Middleware
 app.use(cors({
-  origin: config.cors.origin,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: process.env.CORS_ORIGIN || '*'
 }));
-
-// Request parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Compression
-app.use(compression());
-
-// Logging
-if (config.app.env !== 'test') {
-  app.use(morgan('combined'));
-}
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later'
-});
-app.use('/api/', limiter);
-
-// API routes
-app.use('/api', routes);
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
-});
+// Routes
+app.use('/api/auth', require('./routes/auth.routes'));
+app.use('/api/health', require('./routes/health.routes'));
 
 // Error handling middleware
-app.use(errorHandler);
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).send({
+    message: 'Something went wrong!',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
 
 module.exports = app;
