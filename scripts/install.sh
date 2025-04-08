@@ -204,8 +204,8 @@ collect_config() {
     fi
     
     # Application configuration
-    read -p "Application port [3000]: " APP_PORT
-    APP_PORT=${APP_PORT:-3000}
+    read -p "Application port [5000]: " APP_PORT
+    APP_PORT=${APP_PORT:-5000}
     
     # JWT secrets
     JWT_SECRET=$(openssl rand -base64 32)
@@ -257,8 +257,9 @@ configure_firewall() {
     ufw allow 80/tcp
     ufw allow 443/tcp
     
-    # Allow application port
-    ufw allow $APP_PORT/tcp
+    # Allow application ports
+    ufw allow 5000/tcp
+    ufw allow 4000/tcp
     
     # Enable firewall if not already enabled
     if ! ufw status | grep -q "Status: active"; then
@@ -437,6 +438,41 @@ EOF
     # Create log directory
     mkdir -p /var/log/finance-app
     
+    # Create database config file
+    mkdir -p ./config
+    cat > ./config/config.json << EOF
+{
+  "development": {
+    "username": "$DB_USER",
+    "password": "$DB_PASSWORD",
+    "database": "$DB_NAME",
+    "host": "127.0.0.1",
+    "dialect": "postgres"
+  },
+  "test": {
+    "username": "$DB_USER",
+    "password": "$DB_PASSWORD",
+    "database": "${DB_NAME}_test",
+    "host": "127.0.0.1",
+    "dialect": "postgres"
+  },
+  "production": {
+    "username": "$DB_USER",
+    "password": "$DB_PASSWORD",
+    "database": "$DB_NAME",
+    "host": "127.0.0.1",
+    "dialect": "postgres",
+    "logging": false,
+    "pool": {
+      "max": 5,
+      "min": 0,
+      "acquire": 30000,
+      "idle": 10000
+    }
+  }
+}
+EOF
+    
     # Run database migrations
     if [ -f "./node_modules/.bin/sequelize-cli" ]; then
         npx sequelize-cli db:migrate
@@ -510,7 +546,12 @@ configure_nginx() {
     log_info "Configuring Nginx..."
     
     # Create Nginx configuration file
-    cat > /etc/nginx/sites-available/finance-app.conf << EOF
+    if [ -f "/var/www/finance-app/nginx/finance-app.conf" ]; then
+        log_info "Using Nginx configuration from repository..."
+        cp /var/www/finance-app/nginx/finance-app.conf /etc/nginx/sites-available/finance-app
+    else
+        log_info "Creating Nginx configuration..."
+        cat > /etc/nginx/sites-available/finance-app << EOF
 server {
     listen 80;
     ${DOMAIN_NAME:+server_name $DOMAIN_NAME www.$DOMAIN_NAME;}
@@ -519,7 +560,7 @@ server {
     root /var/www/finance-app/frontend/build;
     index index.html;
     
-    # Frontend routes
+    # Frontend routes - ensure all tabs work with client-side routing
     location / {
         try_files \$uri \$uri/ /index.html;
     }
@@ -555,9 +596,14 @@ server {
         text/xml;
 }
 EOF
+    fi
     
     # Enable Nginx configuration
-    ln -sf /etc/nginx/sites-available/finance-app.conf /etc/nginx/sites-enabled/
+    log_info "Enabling Nginx site configuration..."
+    if [ -L /etc/nginx/sites-enabled/finance-app ]; then
+        rm /etc/nginx/sites-enabled/finance-app
+    fi
+    ln -sf /etc/nginx/sites-available/finance-app /etc/nginx/sites-enabled/
     
     # Test Nginx configuration
     nginx -t
@@ -621,7 +667,7 @@ PGPASSWORD="$DB_PASSWORD" pg_dump -U \$DB_USER \$DB_NAME > \$BACKUP_FILE
 if [ \$? -eq 0 ]; then
   # Compress backup
   gzip \$BACKUP_FILE
-  echo "\$(date): Backup completed successfully: \${BACKUP_FILE}.gz" >> \$LOG_FILE
+  echo "\$(date): Backup completed successfully and compressed to \$BACKUP_FILE.gz" >> \$LOG_FILE
   
   # Remove old backups
   find \$BACKUP_DIR -name "finance_app_*.sql.gz" -type f -mtime +\$RETENTION_DAYS -delete
@@ -632,6 +678,9 @@ else
 fi
 EOF
     
+    # Make backup script executable
+    chmod +x /usr/local/bin/backup-finance-db.sh
+    
     # Create application backup script
     cat > /usr/local/bin/backup-finance-app.sh << EOF
 #!/bin/bash
@@ -640,7 +689,7 @@ EOF
 APP_DIR="/var/www/finance-app"
 BACKUP_DIR="/var/backups/finance-app"
 TIMESTAMP=\$(date +"%Y%m%d_%H%M%S")
-BACKUP_FILE="\$BACKUP_DIR/finance_app_code_\$TIMESTAMP.tar.gz"
+BACKUP_FILE="\$BACKUP_DIR/finance_app_files_\$TIMESTAMP.tar.gz"
 LOG_FILE="/var/log/finance-app/backup.log"
 RETENTION_DAYS=7
 
@@ -651,14 +700,14 @@ mkdir -p \$BACKUP_DIR
 echo "\$(date): Starting application backup" >> \$LOG_FILE
 
 # Perform backup
-tar -czf \$BACKUP_FILE -C \$(dirname \$APP_DIR) \$(basename \$APP_DIR) --exclude="node_modules" --exclude=".git"
+tar -czf \$BACKUP_FILE -C \$(dirname \$APP_DIR) \$(basename \$APP_DIR)
 
 # Check if backup was successful
 if [ \$? -eq 0 ]; then
-  echo "\$(date): Application backup completed successfully: \$BACKUP_FILE" >> \$LOG_FILE
+  echo "\$(date): Application backup completed successfully to \$BACKUP_FILE" >> \$LOG_FILE
   
   # Remove old backups
-  find \$BACKUP_DIR -name "finance_app_code_*.tar.gz" -type f -mtime +\$RETENTION_DAYS -delete
+  find \$BACKUP_DIR -name "finance_app_files_*.tar.gz" -type f -mtime +\$RETENTION_DAYS -delete
   echo "\$(date): Removed backups older than \$RETENTION_DAYS days" >> \$LOG_FILE
 else
   echo "\$(date): Application backup failed" >> \$LOG_FILE
@@ -666,55 +715,14 @@ else
 fi
 EOF
     
-    # Make scripts executable
-    chmod +x /usr/local/bin/backup-finance-db.sh
+    # Make backup script executable
     chmod +x /usr/local/bin/backup-finance-app.sh
     
-    # Schedule backups with cron
-    (crontab -l 2>/dev/null || echo "") | grep -v "backup-finance" | cat - > /tmp/crontab.tmp << EOF
-# Finance App Backups
-0 2 * * * /usr/local/bin/backup-finance-db.sh
-0 3 * * 0 /usr/local/bin/backup-finance-app.sh
-EOF
-    crontab /tmp/crontab.tmp
-    rm /tmp/crontab.tmp
+    # Setup cron jobs for backups
+    (crontab -l 2>/dev/null; echo "0 2 * * * /usr/local/bin/backup-finance-db.sh") | crontab -
+    (crontab -l 2>/dev/null; echo "0 3 * * 0 /usr/local/bin/backup-finance-app.sh") | crontab -
     
     log_success "Backup scripts setup completed"
-}
-
-# Function to setup Fail2Ban
-setup_fail2ban() {
-    log_info "Setting up Fail2Ban..."
-    
-    if ! package_installed fail2ban; then
-        apt install -y fail2ban
-    fi
-    
-    # Create Fail2Ban configuration
-    cat > /etc/fail2ban/jail.local << EOF
-[DEFAULT]
-bantime = 3600
-findtime = 600
-maxretry = 5
-
-[sshd]
-enabled = true
-port = ssh
-filter = sshd
-logpath = /var/log/auth.log
-maxretry = 3
-
-[nginx-http-auth]
-enabled = true
-filter = nginx-http-auth
-port = http,https
-logpath = /var/log/nginx/error.log
-EOF
-    
-    # Restart Fail2Ban
-    systemctl restart fail2ban
-    
-    log_success "Fail2Ban setup completed"
 }
 
 # Function to display installation summary
@@ -737,30 +745,30 @@ display_summary() {
         echo "  http://$(hostname -I | awk '{print $1}')"
     fi
     echo ""
+    echo "API URL:"
+    if [ -n "$DOMAIN_NAME" ]; then
+        if [ "$ENABLE_HTTPS" = "Y" ]; then
+            echo "  https://$DOMAIN_NAME/api"
+        else
+            echo "  http://$DOMAIN_NAME/api"
+        fi
+    else
+        echo "  http://$(hostname -I | awk '{print $1}')/api"
+    fi
+    echo ""
     echo "Database Information:"
-    echo "  Database Name: $DB_NAME"
-    echo "  Username: $DB_USER"
+    echo "  Name: $DB_NAME"
+    echo "  User: $DB_USER"
     echo "  Password: $DB_PASSWORD"
-    echo ""
-    echo "Backend API:"
-    echo "  Port: $APP_PORT"
-    echo "  PM2 Service Name: finance-app-api"
-    echo ""
-    echo "Backup Information:"
-    echo "  Database Backup: Daily at 2 AM"
-    echo "  Application Backup: Weekly on Sunday at 3 AM"
-    echo "  Backup Location: /var/backups/finance-app"
-    echo ""
-    echo "Log Files:"
-    echo "  Application Logs: /var/log/finance-app/out.log"
-    echo "  Error Logs: /var/log/finance-app/error.log"
-    echo "  Nginx Access Logs: /var/log/nginx/access.log"
-    echo "  Nginx Error Logs: /var/log/nginx/error.log"
     echo ""
     echo "Installation Log:"
     echo "  $LOG_FILE"
     echo ""
-    echo "For more information, refer to the deployment guide."
+    echo "Backup Scripts:"
+    echo "  Database: /usr/local/bin/backup-finance-db.sh"
+    echo "  Application: /usr/local/bin/backup-finance-app.sh"
+    echo ""
+    echo "Thank you for installing the Personal Finance Management System!"
     echo "============================================================"
 }
 
@@ -772,19 +780,13 @@ main() {
     # Display banner
     display_banner
     
-    # Confirm installation
-    if ! confirm "Do you want to proceed with the installation?" "Y"; then
-        log_info "Installation cancelled by user"
-        exit 0
-    fi
-    
-    # Check requirements
+    # Check system requirements
     check_requirements
     
-    # Collect configuration
+    # Collect configuration information
     collect_config
     
-    # Update system
+    # Update system packages
     update_system
     
     # Install required packages
@@ -823,14 +825,11 @@ main() {
     # Configure Nginx
     configure_nginx
     
-    # Setup SSL
+    # Setup SSL with Let's Encrypt
     setup_ssl
     
     # Setup backup scripts
     setup_backup
-    
-    # Setup Fail2Ban
-    setup_fail2ban
     
     # Display installation summary
     display_summary

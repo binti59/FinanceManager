@@ -138,21 +138,21 @@ restore_configuration() {
         cat > "$DB_CONFIG" << 'EOF'
 {
   "development": {
-    "username": "bikram",
+    "username": "finance_user",
     "password": "dtP5+x/lehFhyoOi",
     "database": "finance_app",
     "host": "127.0.0.1",
     "dialect": "postgres"
   },
   "test": {
-    "username": "bikram",
+    "username": "finance_user",
     "password": "dtP5+x/lehFhyoOi",
     "database": "finance_app_test",
     "host": "127.0.0.1",
     "dialect": "postgres"
   },
   "production": {
-    "username": "bikram",
+    "username": "finance_user",
     "password": "dtP5+x/lehFhyoOi",
     "database": "finance_app",
     "host": "127.0.0.1",
@@ -184,7 +184,7 @@ EOF
         cat > "$ENV_FILE" << 'EOF'
 NODE_ENV=production
 PORT=5000
-DATABASE_URL=postgresql://bikram:dtP5+x/lehFhyoOi@localhost:5432/finance_app
+DATABASE_URL=postgresql://finance_user:dtP5+x/lehFhyoOi@localhost:5432/finance_app
 JWT_SECRET=your_jwt_secret_key
 JWT_REFRESH_SECRET=your_jwt_refresh_secret_key
 EOF
@@ -349,7 +349,7 @@ configure_firewall() {
     
     # Allow application ports
     ufw allow 5000
-    ufw allow 5001
+    ufw allow 4000
     
     # Enable firewall if not already enabled
     if [ "$(ufw status | grep -o "inactive")" == "inactive" ]; then

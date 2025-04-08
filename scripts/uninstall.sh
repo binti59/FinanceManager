@@ -119,13 +119,19 @@ stop_services() {
 remove_nginx_config() {
     log_info "Removing Nginx configuration..."
     
-    # Remove Nginx configuration files
-    if [ -f /etc/nginx/sites-enabled/finance-app.conf ]; then
+    # Remove Nginx configuration files - check both with and without .conf extension
+    if [ -f /etc/nginx/sites-enabled/finance-app ]; then
+        rm -f /etc/nginx/sites-enabled/finance-app
+        log_info "Removed Nginx configuration from sites-enabled"
+    elif [ -f /etc/nginx/sites-enabled/finance-app.conf ]; then
         rm -f /etc/nginx/sites-enabled/finance-app.conf
         log_info "Removed Nginx configuration from sites-enabled"
     fi
     
-    if [ -f /etc/nginx/sites-available/finance-app.conf ]; then
+    if [ -f /etc/nginx/sites-available/finance-app ]; then
+        rm -f /etc/nginx/sites-available/finance-app
+        log_info "Removed Nginx configuration from sites-available"
+    elif [ -f /etc/nginx/sites-available/finance-app.conf ]; then
         rm -f /etc/nginx/sites-available/finance-app.conf
         log_info "Removed Nginx configuration from sites-available"
     fi
