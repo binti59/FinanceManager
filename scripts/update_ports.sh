@@ -75,19 +75,33 @@ update_pm2() {
   echo "Updating PM2 process..."
   
   if command -v pm2 &> /dev/null; then
-    # Stop existing process
-    pm2 stop finance-app-backend &> /dev/null
+    # Stop and delete all existing processes
+    pm2 stop all &> /dev/null
+    pm2 delete all &> /dev/null
     
-    # Start with new port
+    # Start with new port in single instance mode first
     cd /var/www/finance-app/backend
-    pm2 start server.js --name "finance-app-backend"
+    echo "Starting application in single instance mode..."
+    pm2 start server.js --name "finance-app-backend" --time
     
-    # Save PM2 configuration
-    pm2 save
+    # Wait for 5 seconds to check if it's running properly
+    sleep 5
     
-    echo "PM2 process updated"
+    # Check if the application started successfully
+    if pm2 list | grep -q "finance-app-backend" && pm2 list | grep -q "online"; then
+      echo "Application started successfully in single instance mode"
+      
+      # Save PM2 configuration
+      pm2 save
+    else
+      echo "ERROR: Application failed to start. Checking logs..."
+      pm2 logs --lines 50
+      exit 1
+    fi
   else
-    echo "PM2 not found"
+    echo "PM2 not found. Installing PM2..."
+    npm install -g pm2
+    update_pm2  # Recursive call after installing PM2
   fi
 }
 

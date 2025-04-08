@@ -916,10 +916,10 @@ EOF
 module.exports = {
   apps: [
     {
-      name: "finance-app-api",
+      name: "finance-app-backend",
       script: "./src/server.js",
-      instances: "max",
-      exec_mode: "cluster",
+      instances: 1,
+      exec_mode: "fork",
       env: {
         NODE_ENV: "production",
         PORT: $APP_PORT
@@ -1184,7 +1184,7 @@ configure_nginx() {
         cat > /etc/nginx/sites-available/finance-app << EOF
 server {
     listen 80;
-    ${DOMAIN_NAME:+server_name $DOMAIN_NAME www.$DOMAIN_NAME;}
+    ${DOMAIN_NAME:+server_name $DOMAIN_NAME;}
     
     # Frontend static files
     root /var/www/finance-app/frontend/build;
