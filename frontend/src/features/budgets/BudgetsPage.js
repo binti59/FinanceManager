@@ -20,7 +20,8 @@ import {
   LinearProgress,
   IconButton,
   Divider,
-  CircularProgress
+  CircularProgress,
+  InputAdornment
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { format } from 'date-fns';
@@ -545,8 +546,12 @@ const BudgetsPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {dialogMode === 'add' ? 'Add Budget' : 'Save Changes'}
+          <Button 
+            onClick={handleSubmit} 
+            variant="contained"
+            disabled={!formData.category_id || !formData.amount || !formData.start_date || !formData.end_date}
+          >
+            {dialogMode === 'add' ? 'Add Budget' : 'Update Budget'}
           </Button>
         </DialogActions>
       </Dialog>
