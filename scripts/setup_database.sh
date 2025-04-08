@@ -41,4 +41,28 @@ fi
 log_message "Granting privileges..."
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE finance_app TO finance_user;"
 
+# Create extension if it doesn't exist
+log_message "Creating extensions if they don't exist..."
+sudo -u postgres psql -d finance_app -c "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";"
+
+# Initialize database schema
+log_message "Checking if Sequelize CLI is installed..."
+if ! command -v sequelize &> /dev/null; then
+  log_message "Installing Sequelize CLI..."
+  npm install -g sequelize-cli
+fi
+
+# Check if we're in the backend directory
+if [ -f "./src/models/index.js" ]; then
+  log_message "Initializing database schema..."
+  npx sequelize-cli db:migrate
+elif [ -d "/var/www/finance-app/backend" ]; then
+  log_message "Initializing database schema..."
+  cd /var/www/finance-app/backend
+  npx sequelize-cli db:migrate
+else
+  log_message "Backend directory not found. Database schema initialization skipped."
+  log_message "Please run this script from the backend directory or after installing the application."
+fi
+
 log_message "Database setup completed successfully"

@@ -1,430 +1,295 @@
 #!/bin/bash
+# Personal Finance Management System - Update Script
+# This script updates an existing installation of the Personal Finance Management System
 
-# Update Script for Personal Finance App
-# This script updates the application from GitHub and implements changes
+# Exit on error
+set -e
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
 # Log file
-LOG_FILE="/var/log/finance-app-update.log"
-APP_DIR="/var/www/finance-app"
-BACKUP_DIR="/var/backups/finance-app"
-CONFIG_DIR="$APP_DIR/backend/config"
-DB_CONFIG="$CONFIG_DIR/config.json"
-ENV_FILE="$APP_DIR/backend/.env"
-FRONTEND_ENV="$APP_DIR/frontend/.env"
-GITHUB_REPO="https://github.com/binti59/FinanceManager.git"
-TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+LOG_FILE="/tmp/finance-app-update.log"
 
 # Function to log messages
-log_message() {
-    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1" | tee -a $LOG_FILE
+log() {
+    local message="$1"
+    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    echo -e "${timestamp} - ${message}" | tee -a "$LOG_FILE"
 }
 
-# Function to check if a command succeeded
-check_status() {
-    if [ $? -eq 0 ]; then
-        log_message "SUCCESS: $1"
+# Function to log success messages
+log_success() {
+    log "${GREEN}SUCCESS: $1${NC}"
+}
+
+# Function to log info messages
+log_info() {
+    log "${BLUE}INFO: $1${NC}"
+}
+
+# Function to log warning messages
+log_warning() {
+    log "${YELLOW}WARNING: $1${NC}"
+}
+
+# Function to log error messages
+log_error() {
+    log "${RED}ERROR: $1${NC}"
+}
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to check if a service is running
+service_running() {
+    systemctl is-active --quiet "$1"
+}
+
+# Function to prompt for confirmation
+confirm() {
+    local prompt="$1"
+    local default="$2"
+    
+    if [ "$default" = "Y" ]; then
+        local options="[Y/n]"
     else
-        log_message "ERROR: $1"
-        log_message "Update failed. Please check the log file for details."
+        local options="[y/N]"
+    fi
+    
+    read -p "$prompt $options " response
+    
+    if [ -z "$response" ]; then
+        response="$default"
+    fi
+    
+    case "$response" in
+        [yY][eE][sS]|[yY]) 
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Function to display script banner
+display_banner() {
+    echo -e "${BLUE}"
+    echo "============================================================"
+    echo "  Personal Finance Management System - Update Script        "
+    echo "============================================================"
+    echo -e "${NC}"
+    echo "This script will update your existing installation of the"
+    echo "Personal Finance Management System."
+    echo ""
+    echo "The update includes:"
+    echo "  - Backing up current installation"
+    echo "  - Pulling latest changes from repository"
+    echo "  - Updating dependencies"
+    echo "  - Applying database migrations"
+    echo "  - Restarting services"
+    echo ""
+    echo "Log file: $LOG_FILE"
+    echo ""
+}
+
+# Function to check if application is installed
+check_installation() {
+    log_info "Checking existing installation..."
+    
+    # Check if application directory exists
+    if [ ! -d "/var/www/finance-app" ]; then
+        log_error "Application is not installed. Please run install.sh first."
         exit 1
     fi
+    
+    # Check if backend directory exists
+    if [ ! -d "/var/www/finance-app/backend" ]; then
+        log_error "Backend directory not found. Installation may be corrupted."
+        exit 1
+    fi
+    
+    # Check if PM2 is running the application
+    if ! pm2 list | grep -q "finance-app-backend"; then
+        log_warning "Application is not running in PM2."
+    fi
+    
+    log_success "Installation check completed"
 }
 
-# Create necessary directories if they don't exist
-create_directories() {
-    log_message "INFO: Creating necessary directories..."
+# Function to backup current installation
+backup_installation() {
+    log_info "Backing up current installation..."
     
-    # Create app directory if it doesn't exist
-    if [ ! -d "$APP_DIR" ]; then
-        mkdir -p "$APP_DIR"
-        check_status "Created application directory"
-    fi
+    # Create backup directory
+    local backup_dir="/var/www/finance-app_backup_$(date +%Y%m%d%H%M%S)"
     
-    # Create backup directory if it doesn't exist
-    if [ ! -d "$BACKUP_DIR" ]; then
-        mkdir -p "$BACKUP_DIR"
-        check_status "Created backup directory"
-    fi
+    # Copy files to backup directory
+    cp -r /var/www/finance-app "$backup_dir"
     
-    # Create config directory if it doesn't exist
-    if [ ! -d "$CONFIG_DIR" ]; then
-        mkdir -p "$CONFIG_DIR"
-        check_status "Created config directory"
-    fi
+    # Backup database
+    local db_backup_file="$backup_dir/database_backup.sql"
+    sudo -u postgres pg_dump finance_app > "$db_backup_file"
     
-    # Create scripts directory if it doesn't exist
-    if [ ! -d "$APP_DIR/scripts" ]; then
-        mkdir -p "$APP_DIR/scripts"
-        check_status "Created scripts directory"
-    fi
+    log_success "Installation backed up to $backup_dir"
 }
 
-# Backup current application
-backup_application() {
-    log_message "INFO: Backing up current application..."
+# Function to update application files
+update_files() {
+    log_info "Updating application files..."
     
-    if [ -d "$APP_DIR" ] && [ "$(ls -A $APP_DIR)" ]; then
-        tar -czf "$BACKUP_DIR/finance-app-backup-$TIMESTAMP.tar.gz" -C "$(dirname $APP_DIR)" "$(basename $APP_DIR)"
-        check_status "Application backup created at $BACKUP_DIR/finance-app-backup-$TIMESTAMP.tar.gz"
-    else
-        log_message "INFO: No existing application to backup"
-    fi
+    # Stop application
+    log_info "Stopping application..."
+    pm2 stop finance-app-backend
+    
+    # Update backend files
+    log_info "Updating backend files..."
+    cp -r ./backend/* /var/www/finance-app/backend/
+    
+    # Update frontend files
+    log_info "Updating frontend files..."
+    cp -r ./frontend/* /var/www/finance-app/frontend/
+    
+    # Update nginx files
+    log_info "Updating nginx files..."
+    cp -r ./nginx/* /var/www/finance-app/nginx/
+    
+    # Update scripts
+    log_info "Updating scripts..."
+    cp -r ./scripts/* /var/www/finance-app/scripts/
+    
+    log_success "Application files updated"
 }
 
-# Save current configuration
-save_configuration() {
-    log_message "INFO: Saving current configuration..."
-    
-    # Save database configuration if it exists
-    if [ -f "$DB_CONFIG" ]; then
-        cp "$DB_CONFIG" "$BACKUP_DIR/config.json.bak"
-        check_status "Database configuration saved"
-    fi
-    
-    # Save backend environment file if it exists
-    if [ -f "$ENV_FILE" ]; then
-        cp "$ENV_FILE" "$BACKUP_DIR/.env.backend.bak"
-        check_status "Backend environment file saved"
-    fi
-    
-    # Save frontend environment file if it exists
-    if [ -f "$FRONTEND_ENV" ]; then
-        cp "$FRONTEND_ENV" "$BACKUP_DIR/.env.frontend.bak"
-        check_status "Frontend environment file saved"
-    fi
-    
-    # Save Nginx configuration if it exists
-    if [ -f "/etc/nginx/sites-available/finance-app" ]; then
-        cp "/etc/nginx/sites-available/finance-app" "$BACKUP_DIR/finance-app.nginx.bak"
-        check_status "Nginx configuration saved"
-    fi
-}
-
-# Update application from GitHub
-update_from_github() {
-    log_message "INFO: Updating application from GitHub..."
-    
-    # Check if git is installed
-    if ! command -v git &> /dev/null; then
-        log_message "INFO: Git not found. Installing git..."
-        apt-get update && apt-get install -y git
-        check_status "Git installation"
-    fi
-    
-    # If app directory is empty or doesn't contain a git repository, clone the repo
-    if [ ! -d "$APP_DIR/.git" ]; then
-        log_message "INFO: No git repository found. Cloning from GitHub..."
-        rm -rf "$APP_DIR"
-        git clone "$GITHUB_REPO" "$APP_DIR"
-        check_status "Repository cloning"
-    else
-        # If it's a git repository, pull the latest changes
-        log_message "INFO: Updating existing repository..."
-        cd "$APP_DIR"
-        git fetch origin
-        git reset --hard origin/main
-        check_status "Repository update"
-    fi
-}
-
-# Restore configuration
-restore_configuration() {
-    log_message "INFO: Restoring configuration..."
-    
-    # Create default config.json if it doesn't exist
-    if [ ! -f "$DB_CONFIG" ]; then
-        log_message "INFO: Creating default database configuration..."
-        mkdir -p "$CONFIG_DIR"
-        cat > "$DB_CONFIG" << 'EOF'
-{
-  "development": {
-    "username": "finance_user",
-    "password": "dtP5+x/lehFhyoOi",
-    "database": "finance_app",
-    "host": "127.0.0.1",
-    "dialect": "postgres"
-  },
-  "test": {
-    "username": "finance_user",
-    "password": "dtP5+x/lehFhyoOi",
-    "database": "finance_app_test",
-    "host": "127.0.0.1",
-    "dialect": "postgres"
-  },
-  "production": {
-    "username": "finance_user",
-    "password": "dtP5+x/lehFhyoOi",
-    "database": "finance_app",
-    "host": "127.0.0.1",
-    "dialect": "postgres",
-    "logging": false,
-    "pool": {
-      "max": 5,
-      "min": 0,
-      "acquire": 30000,
-      "idle": 10000
-    }
-  }
-}
-EOF
-        check_status "Default database configuration created"
-    elif [ -f "$BACKUP_DIR/config.json.bak" ]; then
-        # Restore from backup if it exists
-        cp "$BACKUP_DIR/config.json.bak" "$DB_CONFIG"
-        check_status "Database configuration restored from backup"
-    fi
-    
-    # Restore backend environment file if backup exists
-    if [ -f "$BACKUP_DIR/.env.backend.bak" ]; then
-        cp "$BACKUP_DIR/.env.backend.bak" "$ENV_FILE"
-        check_status "Backend environment file restored from backup"
-    elif [ ! -f "$ENV_FILE" ]; then
-        # Create default .env file if it doesn't exist
-        log_message "INFO: Creating default backend environment file..."
-        cat > "$ENV_FILE" << 'EOF'
-NODE_ENV=production
-PORT=5000
-DATABASE_URL=postgresql://finance_user:dtP5+x/lehFhyoOi@localhost:5432/finance_app
-JWT_SECRET=your_jwt_secret_key
-JWT_REFRESH_SECRET=your_jwt_refresh_secret_key
-EOF
-        check_status "Default backend environment file created"
-    fi
-    
-    # Restore frontend environment file if backup exists
-    if [ -f "$BACKUP_DIR/.env.frontend.bak" ]; then
-        cp "$BACKUP_DIR/.env.frontend.bak" "$FRONTEND_ENV"
-        check_status "Frontend environment file restored from backup"
-    elif [ ! -f "$FRONTEND_ENV" ]; then
-        # Create default frontend .env file if it doesn't exist
-        log_message "INFO: Creating default frontend environment file..."
-        cat > "$FRONTEND_ENV" << 'EOF'
-REACT_APP_API_URL=http://localhost:5000/api
-REACT_APP_ENV=production
-EOF
-        check_status "Default frontend environment file created"
-    fi
-}
-
-# Update dependencies
+# Function to update dependencies
 update_dependencies() {
-    log_message "INFO: Updating dependencies..."
-    
-    # Check if Node.js is installed
-    if ! command -v node &> /dev/null; then
-        log_message "INFO: Node.js not found. Installing Node.js..."
-        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-        apt-get install -y nodejs
-        check_status "Node.js installation"
-    fi
-    
-    # Check if npm is installed
-    if ! command -v npm &> /dev/null; then
-        log_message "INFO: npm not found. Installing npm..."
-        apt-get install -y npm
-        check_status "npm installation"
-    fi
+    log_info "Updating dependencies..."
     
     # Update backend dependencies
-    log_message "INFO: Updating backend dependencies..."
-    cd "$APP_DIR/backend"
-    npm install --production
-    check_status "Backend dependencies update"
+    log_info "Updating backend dependencies..."
+    cd /var/www/finance-app/backend
+    npm install
     
-    # Update frontend dependencies
-    log_message "INFO: Updating frontend dependencies..."
-    cd "$APP_DIR/frontend"
-    npm install --production
-    check_status "Frontend dependencies update"
+    log_success "Dependencies updated"
 }
 
-# Build frontend
-build_frontend() {
-    log_message "INFO: Building frontend..."
-    cd "$APP_DIR/frontend"
-    npm run build
-    check_status "Frontend build"
-}
-
-# Update database
-update_database() {
-    log_message "INFO: Updating database..."
+# Function to apply database migrations
+apply_migrations() {
+    log_info "Applying database migrations..."
     
-    # Check if PostgreSQL is installed
-    if ! command -v psql &> /dev/null; then
-        log_message "INFO: PostgreSQL not found. Installing PostgreSQL..."
-        apt-get install -y postgresql postgresql-contrib
-        check_status "PostgreSQL installation"
-        
-        # Start PostgreSQL service
-        systemctl start postgresql
-        systemctl enable postgresql
-        check_status "PostgreSQL service start"
-    fi
-    
-    # Run database migrations
-    log_message "INFO: Running database migrations..."
-    cd "$APP_DIR/backend"
+    # Run migrations
+    cd /var/www/finance-app/backend
     npx sequelize-cli db:migrate
-    check_status "Database migrations"
+    
+    log_success "Database migrations applied"
 }
 
-# Configure Nginx
-configure_nginx() {
-    log_message "INFO: Configuring Nginx..."
+# Function to restart services
+restart_services() {
+    log_info "Restarting services..."
     
-    # Check if Nginx is installed
-    if ! command -v nginx &> /dev/null; then
-        log_message "INFO: Nginx not found. Installing Nginx..."
-        apt-get install -y nginx
-        check_status "Nginx installation"
-    fi
-    
-    # Copy Nginx configuration from repository to the correct location
-    if [ -f "$APP_DIR/nginx/finance-app.conf" ]; then
-        log_message "INFO: Copying Nginx configuration from repository..."
-        cp "$APP_DIR/nginx/finance-app.conf" /etc/nginx/sites-available/finance-app
-        check_status "Nginx configuration copied"
-    else
-        # Create Nginx configuration if it doesn't exist in the repository
-        log_message "INFO: Creating Nginx configuration..."
-        cat > /etc/nginx/sites-available/finance-app << 'EOF'
-server {
-    listen 80;
-    server_name finance.bikramjitchowdhury.com;
-
-    location / {
-        root /var/www/finance-app/frontend/build;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api {
-        proxy_pass http://localhost:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-EOF
-        check_status "Nginx configuration creation"
-    fi
-    
-    # Enable the site - CRITICAL FIX: Always create the symbolic link
-    log_message "INFO: Enabling Nginx site configuration..."
-    if [ -L /etc/nginx/sites-enabled/finance-app ]; then
-        rm /etc/nginx/sites-enabled/finance-app
-    fi
-    ln -s /etc/nginx/sites-available/finance-app /etc/nginx/sites-enabled/
-    check_status "Nginx site enabled"
-    
-    # Test Nginx configuration
-    nginx -t
-    check_status "Nginx configuration test"
+    # Restart application
+    cd /var/www/finance-app/backend
+    pm2 restart finance-app-backend
+    pm2 save
     
     # Reload Nginx
     systemctl reload nginx
-    check_status "Nginx reload"
+    
+    log_success "Services restarted"
 }
 
-# Configure firewall
-configure_firewall() {
-    log_message "INFO: Configuring firewall..."
+# Function to perform final checks
+final_checks() {
+    log_info "Performing final checks..."
     
-    # Check if ufw is installed
-    if ! command -v ufw &> /dev/null; then
-        log_message "INFO: ufw not found. Installing ufw..."
-        apt-get install -y ufw
-        check_status "ufw installation"
+    # Check if Nginx is running
+    if service_running "nginx"; then
+        log_success "Nginx is running"
+    else
+        log_error "Nginx is not running"
+        systemctl start nginx
     fi
     
-    # Allow SSH
-    ufw allow ssh
-    
-    # Allow HTTP and HTTPS
-    ufw allow http
-    ufw allow https
-    
-    # Allow application ports
-    ufw allow 5000
-    ufw allow 4000
-    
-    # Enable firewall if not already enabled
-    if [ "$(ufw status | grep -o "inactive")" == "inactive" ]; then
-        echo "y" | ufw enable
+    # Check if PostgreSQL is running
+    if service_running "postgresql"; then
+        log_success "PostgreSQL is running"
+    else
+        log_error "PostgreSQL is not running"
+        systemctl start postgresql
     fi
     
-    check_status "Firewall configuration"
+    # Check if application is running
+    if pm2 list | grep -q "finance-app-backend"; then
+        log_success "Application is running"
+    else
+        log_error "Application is not running"
+        cd /var/www/finance-app/backend
+        pm2 start ecosystem.config.js
+        pm2 save
+    fi
+    
+    # Check if application is accessible
+    if curl -s http://localhost:5000/api/health | grep -q "status.*ok"; then
+        log_success "Application is accessible"
+    else
+        log_warning "Application is not accessible"
+    fi
+    
+    log_success "Final checks completed"
 }
 
-# Restart application
-restart_application() {
-    log_message "INFO: Restarting application..."
-    
-    # Check if PM2 is installed
-    if ! command -v pm2 &> /dev/null; then
-        log_message "INFO: PM2 not found. Installing PM2..."
-        npm install -g pm2
-        check_status "PM2 installation"
-    fi
-    
-    # Stop existing processes
-    pm2 stop all 2>/dev/null || true
-    
-    # Start backend
-    cd "$APP_DIR/backend"
-    pm2 start server.js --name "finance-app-backend"
-    check_status "Backend start"
-    
-    # Save PM2 configuration
-    pm2 save
-    
-    # Setup PM2 to start on boot
-    pm2 startup
-    check_status "PM2 startup configuration"
-}
-
-# Main execution
+# Main function
 main() {
-    log_message "INFO: Starting Personal Finance App update process..."
+    # Clear log file
+    > "$LOG_FILE"
     
-    # Create necessary directories
-    create_directories
+    # Display banner
+    display_banner
     
-    # Backup current application
-    backup_application
+    # Confirm update
+    if ! confirm "Do you want to update the Personal Finance Management System?" "Y"; then
+        log_info "Update cancelled"
+        exit 0
+    fi
     
-    # Save current configuration
-    save_configuration
+    # Check if application is installed
+    check_installation
     
-    # Update application from GitHub
-    update_from_github
+    # Backup current installation
+    if confirm "Do you want to backup the current installation?" "Y"; then
+        backup_installation
+    else
+        log_info "Backup skipped"
+    fi
     
-    # Restore configuration
-    restore_configuration
+    # Update application files
+    update_files
     
     # Update dependencies
     update_dependencies
     
-    # Build frontend
-    build_frontend
+    # Apply database migrations
+    apply_migrations
     
-    # Update database
-    update_database
+    # Restart services
+    restart_services
     
-    # Configure Nginx
-    configure_nginx
+    # Perform final checks
+    final_checks
     
-    # Configure firewall
-    configure_firewall
-    
-    # Restart application
-    restart_application
-    
-    log_message "SUCCESS: Personal Finance App update completed successfully!"
+    log_success "Update completed successfully"
+    echo ""
+    echo "You can access the application at: https://finance.bikramjitchowdhury.com"
+    echo ""
 }
 
-# Run the main function
+# Run main function
 main

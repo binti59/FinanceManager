@@ -1,7 +1,6 @@
 #!/bin/bash
-
-# Personal Finance Management System - Uninstallation Script
-# This script removes the Personal Finance Management System from a server.
+# Personal Finance Management System - Uninstall Script
+# This script removes the Personal Finance Management System from your server
 
 # Exit on error
 set -e
@@ -74,72 +73,115 @@ confirm() {
 display_banner() {
     echo -e "${RED}"
     echo "============================================================"
-    echo "  Personal Finance Management System - Uninstallation Script  "
+    echo "  Personal Finance Management System - Uninstall Script     "
     echo "============================================================"
     echo -e "${NC}"
     echo "This script will remove the Personal Finance Management System"
     echo "from your server."
     echo ""
     echo "The uninstallation includes:"
-    echo "  - Stopping and removing the application services"
-    echo "  - Removing the application files"
-    echo "  - Removing the Nginx configuration"
+    echo "  - Stopping and removing the application from PM2"
+    echo "  - Removing application files"
+    echo "  - Removing Nginx configuration"
     echo "  - Optionally removing the database"
-    echo "  - Optionally removing backup files"
-    echo "  - Optionally removing installed software"
     echo ""
     echo "Log file: $LOG_FILE"
     echo ""
-    echo -e "${RED}WARNING: This action is irreversible!${NC}"
-    echo ""
+}
+
+# Function to check if application is installed
+check_installation() {
+    log_info "Checking existing installation..."
+    
+    # Check if application directory exists
+    if [ ! -d "/var/www/finance-app" ]; then
+        log_warning "Application directory not found. Application may not be installed."
+        
+        if ! confirm "Continue with uninstallation?" "N"; then
+            log_info "Uninstallation cancelled"
+            exit 0
+        fi
+    fi
+    
+    log_success "Installation check completed"
 }
 
 # Function to stop application services
 stop_services() {
     log_info "Stopping application services..."
     
-    # Stop PM2 processes
+    # Stop application in PM2
     if command -v pm2 >/dev/null 2>&1; then
-        if pm2 list | grep -q "finance-app-api"; then
-            pm2 stop finance-app-api
-            pm2 delete finance-app-api
+        if pm2 list | grep -q "finance-app-backend"; then
+            log_info "Stopping application in PM2..."
+            pm2 stop finance-app-backend
+            pm2 delete finance-app-backend
             pm2 save
-            log_info "PM2 processes stopped and removed"
         else
-            log_info "No PM2 processes found for the application"
+            log_info "Application not found in PM2"
         fi
     else
-        log_info "PM2 is not installed"
+        log_warning "PM2 not installed"
     fi
     
     log_success "Application services stopped"
+}
+
+# Function to remove application files
+remove_files() {
+    log_info "Removing application files..."
+    
+    # Check if application directory exists
+    if [ -d "/var/www/finance-app" ]; then
+        # Create backup before removal
+        if confirm "Create backup before removing files?" "Y"; then
+            local backup_dir="/var/www/finance-app_backup_before_uninstall_$(date +%Y%m%d%H%M%S)"
+            log_info "Creating backup at $backup_dir..."
+            cp -r /var/www/finance-app "$backup_dir"
+            log_success "Backup created"
+        fi
+        
+        # Remove application directory
+        log_info "Removing application directory..."
+        rm -rf /var/www/finance-app
+    else
+        log_warning "Application directory not found"
+    fi
+    
+    # Remove log files
+    if [ -d "/var/log/finance-app" ]; then
+        log_info "Removing log files..."
+        rm -rf /var/log/finance-app
+    fi
+    
+    if [ -d "/home/ubuntu/logs/finance-app" ]; then
+        log_info "Removing additional log files..."
+        rm -rf /home/ubuntu/logs/finance-app
+    fi
+    
+    log_success "Application files removed"
 }
 
 # Function to remove Nginx configuration
 remove_nginx_config() {
     log_info "Removing Nginx configuration..."
     
-    # Remove Nginx configuration files - check both with and without .conf extension
-    if [ -L /etc/nginx/sites-enabled/finance-app ]; then
-        rm -f /etc/nginx/sites-enabled/finance-app
-        log_info "Removed Nginx configuration from sites-enabled"
-    elif [ -L /etc/nginx/sites-enabled/finance-app.conf ]; then
-        rm -f /etc/nginx/sites-enabled/finance-app.conf
-        log_info "Removed Nginx configuration from sites-enabled"
-    fi
-    
-    if [ -f /etc/nginx/sites-available/finance-app ]; then
+    # Remove site configuration
+    if [ -f "/etc/nginx/sites-available/finance-app" ]; then
+        log_info "Removing Nginx site configuration..."
         rm -f /etc/nginx/sites-available/finance-app
-        log_info "Removed Nginx configuration from sites-available"
-    elif [ -f /etc/nginx/sites-available/finance-app.conf ]; then
-        rm -f /etc/nginx/sites-available/finance-app.conf
-        log_info "Removed Nginx configuration from sites-available"
     fi
     
-    # Reload Nginx if it's running
+    # Remove symbolic link
+    if [ -f "/etc/nginx/sites-enabled/finance-app" ]; then
+        log_info "Removing Nginx site symbolic link..."
+        rm -f /etc/nginx/sites-enabled/finance-app
+    fi
+    
+    # Reload Nginx
     if systemctl is-active --quiet nginx; then
+        log_info "Reloading Nginx..."
         systemctl reload nginx
-        log_info "Nginx reloaded"
     fi
     
     log_success "Nginx configuration removed"
@@ -147,180 +189,80 @@ remove_nginx_config() {
 
 # Function to remove SSL certificates
 remove_ssl_certificates() {
-    log_info "Checking for SSL certificates..."
+    log_info "Removing SSL certificates..."
     
-    # Check if certbot is installed
+    # Check if Certbot is installed
     if command -v certbot >/dev/null 2>&1; then
-        # Get list of domains
-        domains=$(certbot certificates 2>/dev/null | grep -oP "(?<=Domains: ).*")
-        
-        if [ -n "$domains" ]; then
-            log_info "Found SSL certificates for domains: $domains"
-            
-            if confirm "Do you want to remove the SSL certificates?" "N"; then
-                # Extract first domain from the list
-                first_domain=$(echo $domains | cut -d' ' -f1)
-                
-                # Delete certificates
-                certbot delete --cert-name $first_domain
-                log_info "SSL certificates removed"
-            else
-                log_info "SSL certificates will be kept"
-            fi
-        else
-            log_info "No SSL certificates found"
-        fi
+        # Remove certificates
+        log_info "Removing certificates for finance.bikramjitchowdhury.com..."
+        certbot delete --cert-name finance.bikramjitchowdhury.com --non-interactive
     else
-        log_info "Certbot is not installed"
-    fi
-}
-
-# Function to remove application files
-remove_application_files() {
-    log_info "Removing application files..."
-    
-    # Remove application directory completely
-    if [ -d /var/www/finance-app ]; then
-        rm -rf /var/www/finance-app
-        log_info "Removed application directory completely"
-    else
-        log_info "Application directory not found"
+        log_warning "Certbot not installed"
     fi
     
-    # Remove log files
-    if [ -d /var/log/finance-app ]; then
-        if confirm "Do you want to remove application log files?" "N"; then
-            rm -rf /var/log/finance-app
-            log_info "Removed application log files"
-        else
-            log_info "Application log files will be kept"
-        fi
-    fi
-    
-    # Remove backup scripts
-    if [ -f /usr/local/bin/backup-finance-db.sh ]; then
-        rm -f /usr/local/bin/backup-finance-db.sh
-        log_info "Removed database backup script"
-    fi
-    
-    if [ -f /usr/local/bin/backup-finance-app.sh ]; then
-        rm -f /usr/local/bin/backup-finance-app.sh
-        log_info "Removed application backup script"
-    fi
-    
-    # Remove cron jobs
-    (crontab -l 2>/dev/null | grep -v "backup-finance") | crontab -
-    log_info "Removed backup cron jobs"
-    
-    log_success "Application files removed"
+    log_success "SSL certificates removed"
 }
 
 # Function to remove database
 remove_database() {
-    if confirm "Do you want to remove the application database?" "N"; then
-        log_info "Removing database..."
-        
-        # Prompt for database name
-        read -p "Enter database name to remove [finance_app]: " DB_NAME
-        DB_NAME=${DB_NAME:-finance_app}
-        
-        # Prompt for database user
-        read -p "Enter database user to remove [finance_user]: " DB_USER
-        DB_USER=${DB_USER:-finance_user}
-        
-        # Confirm database removal
-        if confirm "Are you sure you want to remove database '$DB_NAME' and user '$DB_USER'? This action cannot be undone!" "N"; then
-            # Drop database and user
-            sudo -u postgres psql -c "DROP DATABASE IF EXISTS $DB_NAME;"
-            sudo -u postgres psql -c "DROP USER IF EXISTS $DB_USER;"
-            
-            log_success "Database and user removed"
-        else
-            log_info "Database removal cancelled"
+    log_info "Removing database..."
+    
+    # Check if PostgreSQL is installed
+    if command -v psql >/dev/null 2>&1; then
+        # Create backup before removal
+        if confirm "Create database backup before removal?" "Y"; then
+            local backup_file="/tmp/finance_app_db_backup_$(date +%Y%m%d%H%M%S).sql"
+            log_info "Creating database backup at $backup_file..."
+            sudo -u postgres pg_dump finance_app > "$backup_file"
+            log_success "Database backup created"
         fi
+        
+        # Drop database
+        log_info "Dropping database..."
+        sudo -u postgres psql -c "DROP DATABASE IF EXISTS finance_app;"
+        
+        # Drop user
+        log_info "Dropping database user..."
+        sudo -u postgres psql -c "DROP USER IF EXISTS finance_user;"
     else
-        log_info "Database will be kept"
+        log_warning "PostgreSQL not installed"
     fi
+    
+    log_success "Database removed"
 }
 
-# Function to remove backup files
-remove_backup_files() {
-    if [ -d /var/backups/finance-app ]; then
-        if confirm "Do you want to remove backup files?" "N"; then
-            log_info "Removing backup files..."
-            
-            rm -rf /var/backups/finance-app
-            log_success "Backup files removed"
-        else
-            log_info "Backup files will be kept"
-        fi
+# Function to remove firewall rules
+remove_firewall_rules() {
+    log_info "Removing firewall rules..."
+    
+    # Check if UFW is installed
+    if command -v ufw >/dev/null 2>&1; then
+        # Remove application port rule
+        log_info "Removing port 5000 rule..."
+        ufw delete allow 5000/tcp
     else
-        log_info "No backup files found"
+        log_warning "UFW not installed"
     fi
+    
+    log_success "Firewall rules removed"
 }
 
-# Function to remove installed software
-remove_installed_software() {
-    if confirm "Do you want to remove installed software (Node.js, PM2, etc.)?" "N"; then
-        log_info "Removing installed software..."
-        
-        # Remove PM2
-        if command -v pm2 >/dev/null 2>&1; then
-            npm uninstall -g pm2
-            log_info "PM2 removed"
-        fi
-        
-        # Ask about removing Node.js
-        if command -v node >/dev/null 2>&1 && confirm "Do you want to remove Node.js?" "N"; then
-            apt purge -y nodejs
-            apt autoremove -y
-            log_info "Node.js removed"
-        fi
-        
-        # Ask about removing Nginx
-        if command -v nginx >/dev/null 2>&1 && confirm "Do you want to remove Nginx?" "N"; then
-            apt purge -y nginx nginx-common
-            apt autoremove -y
-            log_info "Nginx removed"
-        fi
-        
-        # Ask about removing PostgreSQL
-        if command -v psql >/dev/null 2>&1 && confirm "Do you want to remove PostgreSQL?" "N"; then
-            apt purge -y postgresql postgresql-contrib
-            apt autoremove -y
-            log_info "PostgreSQL removed"
-        fi
-        
-        log_success "Requested software removed"
-    else
-        log_info "Installed software will be kept"
+# Function to perform final cleanup
+final_cleanup() {
+    log_info "Performing final cleanup..."
+    
+    # Remove log rotation configuration
+    if [ -f "/etc/logrotate.d/finance-app" ]; then
+        log_info "Removing log rotation configuration..."
+        rm -f /etc/logrotate.d/finance-app
     fi
+    
+    log_success "Final cleanup completed"
 }
 
-# Function to display uninstallation summary
-display_summary() {
-    echo -e "${GREEN}"
-    echo "============================================================"
-    echo "  Personal Finance Management System - Uninstallation Summary  "
-    echo "============================================================"
-    echo -e "${NC}"
-    echo "Uninstallation completed successfully!"
-    echo ""
-    echo "The following actions were performed:"
-    echo "  - Application services were stopped"
-    echo "  - Nginx configuration was removed"
-    echo "  - Application files were removed"
-    echo ""
-    echo "Uninstallation Log:"
-    echo "  $LOG_FILE"
-    echo ""
-    echo "Thank you for using the Personal Finance Management System."
-    echo "============================================================"
-}
-
-# Main uninstallation function
+# Main function
 main() {
-    # Initialize log file
+    # Clear log file
     > "$LOG_FILE"
     
     # Display banner
@@ -328,40 +270,57 @@ main() {
     
     # Confirm uninstallation
     if ! confirm "Are you sure you want to uninstall the Personal Finance Management System?" "N"; then
-        log_info "Uninstallation cancelled by user"
+        log_info "Uninstallation cancelled"
         exit 0
     fi
     
-    # Double-check confirmation
-    if ! confirm "This will remove the application and its data. Are you absolutely sure?" "N"; then
-        log_info "Uninstallation cancelled by user"
+    # Double-check confirmation for data loss
+    if ! confirm "This will remove all application files and configurations. Are you absolutely sure?" "N"; then
+        log_info "Uninstallation cancelled"
         exit 0
     fi
+    
+    # Check if application is installed
+    check_installation
     
     # Stop application services
     stop_services
+    
+    # Remove application files
+    remove_files
     
     # Remove Nginx configuration
     remove_nginx_config
     
     # Remove SSL certificates
-    remove_ssl_certificates
-    
-    # Remove application files
-    remove_application_files
+    if confirm "Do you want to remove SSL certificates?" "N"; then
+        remove_ssl_certificates
+    else
+        log_info "SSL certificate removal skipped"
+    fi
     
     # Remove database
-    remove_database
+    if confirm "Do you want to remove the database?" "N"; then
+        remove_database
+    else
+        log_info "Database removal skipped"
+    fi
     
-    # Remove backup files
-    remove_backup_files
+    # Remove firewall rules
+    if confirm "Do you want to remove firewall rules?" "N"; then
+        remove_firewall_rules
+    else
+        log_info "Firewall rule removal skipped"
+    fi
     
-    # Remove installed software
-    remove_installed_software
+    # Perform final cleanup
+    final_cleanup
     
-    # Display uninstallation summary
-    display_summary
+    log_success "Uninstallation completed successfully"
+    echo ""
+    echo "The Personal Finance Management System has been removed from your server."
+    echo ""
 }
 
-# Run main uninstallation function
+# Run main function
 main
